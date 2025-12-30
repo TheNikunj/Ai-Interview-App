@@ -20,7 +20,7 @@ A modern, full-stack AI-powered interview application where students can upload 
 
 ### Frontend
 - React 18 with Vite
-- JavaScript (No TypeScript)
+- JavaScript 
 - Tailwind CSS for styling
 - Lucide React for icons
 

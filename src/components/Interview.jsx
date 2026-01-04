@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Camera, AlertTriangle, CheckCircle, Mic, MicOff, Video, VideoOff, Maximize, Minimize } from 'lucide-react';
+import { Camera, AlertTriangle, CheckCircle, Mic, MicOff, Video, VideoOff, Maximize, Minimize, MonitorPlay, Clock, ShieldAlert, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 const MAX_TAB_SWITCHES = 3;
@@ -19,10 +19,14 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [showStartButton, setShowStartButton] = useState(true);
+  const [showFullscreenPrompt, setShowFullscreenPrompt] = useState(false);
+  const [generatedQuestions, setGeneratedQuestions] = useState(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
 
   const videoRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
+  const timerRef = useRef(null);
 
   useEffect(() => {
     generateQuestions();
@@ -33,30 +37,37 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
       }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
     };
   }, []);
 
-  const [showFullscreenPrompt, setShowFullscreenPrompt] = useState(false);
-  const [generatedQuestions, setGeneratedQuestions] = useState(null);
+  useEffect(() => {
+    if (showFullscreenPrompt === false && generatedQuestions) {
+      timerRef.current = setInterval(() => {
+        setElapsedTime(prev => prev + 1);
+      }, 1000);
+    }
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, [showFullscreenPrompt, generatedQuestions]);
 
   const startInterview = async () => {
     try {
-      // First set the questions
       setQuestions(generatedQuestions);
-      
-      // Then try to enter fullscreen
       await enterFullscreen();
-      
-      // Hide the fullscreen prompt
       setShowFullscreenPrompt(false);
       
-      // Start the interview
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'inactive') {
         mediaRecorderRef.current.start(1000);
       }
     } catch (err) {
       console.error('Error starting interview:', err);
-      // If fullscreen fails, still continue with the interview
       setShowFullscreenPrompt(false);
     }
   };
@@ -97,7 +108,6 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
         .update({ questions: data.questions })
         .eq('id', interviewId);
 
-      // Show fullscreen prompt instead of automatically entering fullscreen
       setShowFullscreenPrompt(true);
       setLoading(false);
     } catch (err) {
@@ -111,13 +121,11 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
     try {
       console.log('Initializing webcam...');
       
-      // Stop any existing stream
       if (stream) {
         console.log('Stopping existing stream...');
         stream.getTracks().forEach(track => track.stop());
       }
 
-      // Try to get user media with basic constraints
       let mediaStream;
       try {
         mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -130,7 +138,6 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
         return;
       }
 
-      // Verify we have video tracks
       const videoTracks = mediaStream.getVideoTracks();
       console.log('Available video tracks:', videoTracks);
       
@@ -138,19 +145,15 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
         throw new Error('No video tracks available');
       }
 
-      // Set the stream in state
       setStream(mediaStream);
 
-      // Setup video element
       if (videoRef.current) {
         const video = videoRef.current;
         
-        // Set the source
         video.srcObject = mediaStream;
         video.muted = true;
         video.playsInline = true;
         
-        // When metadata is loaded, play the video
         const onLoaded = () => {
           console.log('Video metadata loaded');
           video.play().catch(err => {
@@ -159,28 +162,24 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
           });
         };
         
-        // If already has metadata, play immediately
-        if (video.readyState >= 1) { // HAVE_CURRENT_DATA
+        if (video.readyState >= 1) {
           onLoaded();
         } else {
           video.onloadedmetadata = onLoaded;
         }
         
-        // Handle any playback errors
         video.onerror = (e) => {
           console.error('Video playback error:', e);
           console.error('Video error details:', video.error);
           setError('Error playing video stream');
         };
         
-        // Log when video starts playing
         video.onplay = () => {
           console.log('Video is now playing');
           setError('');
         };
       }
       
-      // Clean up existing media recorder if any
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         try {
           mediaRecorderRef.current.stream?.getTracks().forEach(track => track.stop());
@@ -212,7 +211,7 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
       };
 
       mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start(1000); // Request data every second
+      mediaRecorder.start(1000);
       
     } catch (err) {
       console.error('Webcam error:', err);
@@ -246,7 +245,6 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
       setIsVideoOn(newState);
       
       if (!newState) {
-        // Show the start button when turning off the camera
         setShowStartButton(true);
       }
     }
@@ -257,11 +255,11 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
       const element = document.documentElement;
       if (element.requestFullscreen) {
         await element.requestFullscreen();
-      } else if (element.mozRequestFullScreen) { /* Firefox */
+      } else if (element.mozRequestFullScreen) {
         await element.mozRequestFullScreen();
-      } else if (element.webkitRequestFullscreen) { /* Chrome, Safari and Opera */
+      } else if (element.webkitRequestFullscreen) {
         await element.webkitRequestFullscreen();
-      } else if (element.msRequestFullscreen) { /* IE/Edge */
+      } else if (element.msRequestFullscreen) {
         await element.msRequestFullscreen();
       }
       setIsFullscreen(true);
@@ -274,11 +272,11 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
     try {
       if (document.exitFullscreen) {
         await document.exitFullscreen();
-      } else if (document.mozCancelFullScreen) { /* Firefox */
+      } else if (document.mozCancelFullScreen) {
         await document.mozCancelFullScreen();
-      } else if (document.webkitExitFullscreen) { /* Chrome, Safari and Opera */
+      } else if (document.webkitExitFullscreen) {
         await document.webkitExitFullscreen();
-      } else if (document.msExitFullscreen) { /* IE/Edge */
+      } else if (document.msExitFullscreen) {
         await document.msExitFullscreen();
       }
       setIsFullscreen(false);
@@ -305,13 +303,10 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
           const newCount = prev + 1;
           setShowWarning(true);
           
-          // Show warning for longer if approaching or exceeding limit
           const warningDuration = newCount >= MAX_TAB_SWITCHES ? 10000 : 5000;
           setTimeout(() => setShowWarning(false), warningDuration);
           
-          // If max tab switches reached, show persistent warning
           if (newCount >= MAX_TAB_SWITCHES) {
-            // Optionally take action like ending the interview
             // handleSubmit();
           }
           
@@ -320,7 +315,6 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
       }
     };
 
-    // Add additional event listeners for better detection
     const handleBlur = () => {
       if (document.visibilityState === 'visible') {
         handleVisibilityChange();
@@ -391,12 +385,43 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
     }
   };
 
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-700 text-lg">Generating your interview questions...</p>
+      <div className="min-h-screen bg-slate-950 relative overflow-hidden flex items-center justify-center">
+        {/* Animated Background */}
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute top-[-20%] left-[-20%] w-[600px] h-[600px] bg-blue-500/10 rounded-full blur-[120px] animate-pulse" />
+          <div className="absolute bottom-[-20%] right-[-20%] w-[600px] h-[600px] bg-purple-500/10 rounded-full blur-[120px] animate-pulse animation-delay-2000" />
+          <div className="absolute top-[40%] left-[50%] transform -translate-x-1/2 w-[400px] h-[400px] bg-indigo-500/10 rounded-full blur-[100px] animate-pulse animation-delay-4000" />
+        </div>
+
+        {/* Loading Card */}
+        <div className="relative z-10 bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-12 text-center shadow-2xl ring-1 ring-white/20">
+          <div className="relative mb-8">
+            <div className="absolute inset-0 bg-blue-500/20 blur-2xl rounded-full animate-pulse" />
+            <div className="relative bg-gradient-to-tr from-blue-500/20 to-purple-500/20 p-6 rounded-2xl border border-white/10 inline-block">
+              <MonitorPlay className="w-12 h-12 text-blue-400" />
+            </div>
+          </div>
+          
+          <h2 className="text-2xl font-bold text-white mb-3 tracking-tight">
+            Preparing Your Interview
+          </h2>
+          <p className="text-slate-400 mb-8 max-w-xs mx-auto">
+            Generating personalized questions based on your profile
+          </p>
+          
+          <div className="flex items-center justify-center space-x-2">
+            <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+            <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+            <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+          </div>
         </div>
       </div>
     );
@@ -404,18 +429,76 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
 
   if (showFullscreenPrompt) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-gray-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">Ready to Start Your Interview</h2>
-          <p className="text-gray-600 mb-8">
-            Your interview questions are ready. Click the button below to begin.
-          </p>
-          <button
-            onClick={startInterview}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-lg transition-colors duration-200"
-          >
-            Start Interview
-          </button>
+      <div className="min-h-screen bg-slate-950 relative overflow-hidden flex items-center justify-center p-4">
+        {/* Animated Background */}
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute top-[-20%] left-[-20%] w-[600px] h-[600px] bg-blue-500/10 rounded-full blur-[120px]" />
+          <div className="absolute bottom-[-20%] right-[-20%] w-[600px] h-[600px] bg-purple-500/10 rounded-full blur-[120px]" />
+        </div>
+
+        {/* Prompt Card */}
+        <div className="relative z-10 max-w-lg w-full">
+          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-10 shadow-2xl ring-1 ring-white/20">
+            <div className="text-center mb-8">
+              <div className="relative inline-block mb-6">
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/30 to-purple-500/30 blur-2xl rounded-full" />
+                <div className="relative bg-gradient-to-br from-blue-500/20 to-purple-500/20 p-5 rounded-2xl border border-white/10">
+                  <MonitorPlay className="w-14 h-14 text-white" />
+                </div>
+              </div>
+              
+              <h2 className="text-3xl font-bold text-white mb-3 tracking-tight">
+                Ready to Begin
+              </h2>
+              <p className="text-slate-400 text-lg">
+                Your personalized interview questions are ready
+              </p>
+            </div>
+
+            {/* Feature List */}
+            <div className="space-y-4 mb-8">
+              <div className="flex items-center p-4 bg-white/5 rounded-xl border border-white/10">
+                <div className="bg-green-500/20 p-2 rounded-lg mr-4">
+                  <CheckCircle className="w-5 h-5 text-green-400" />
+                </div>
+                <div>
+                  <h3 className="text-white font-medium">Questions Generated</h3>
+                  <p className="text-slate-400 text-sm">{generatedQuestions?.length} questions tailored for you</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center p-4 bg-white/5 rounded-xl border border-white/10">
+                <div className="bg-blue-500/20 p-2 rounded-lg mr-4">
+                  <Video className="w-5 h-5 text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-white font-medium">Video Recording</h3>
+                  <p className="text-slate-400 text-sm">Your responses will be recorded for analysis</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center p-4 bg-white/5 rounded-xl border border-white/10">
+                <div className="bg-purple-500/20 p-2 rounded-lg mr-4">
+                  <ShieldAlert className="w-5 h-5 text-purple-400" />
+                </div>
+                <div>
+                  <h3 className="text-white font-medium">Proctoring Active</h3>
+                  <p className="text-slate-400 text-sm">Tab switching will be monitored</p>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={startInterview}
+              className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-semibold py-4 px-6 rounded-xl transition-all duration-300 shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 hover:-translate-y-0.5"
+            >
+              Start Interview
+            </button>
+            
+            <p className="text-center text-slate-500 text-sm mt-6">
+              Fullscreen mode will be activated automatically
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -423,12 +506,29 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-gray-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md">
-          <div className="text-red-600 text-center">
-            <AlertTriangle className="w-16 h-16 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold mb-2">Error</h2>
-            <p>{error}</p>
+      <div className="min-h-screen bg-slate-950 relative overflow-hidden flex items-center justify-center p-4">
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute top-[-20%] left-[-20%] w-[600px] h-[600px] bg-red-500/10 rounded-full blur-[120px]" />
+        </div>
+
+        <div className="relative z-10 bg-white/5 backdrop-blur-xl border border-red-500/20 rounded-3xl p-10 max-w-md w-full shadow-2xl ring-1 ring-white/10">
+          <div className="text-center">
+            <div className="relative inline-block mb-6">
+              <div className="absolute inset-0 bg-red-500/30 blur-2xl rounded-full" />
+              <div className="relative bg-red-500/20 p-5 rounded-2xl border border-red-500/30">
+                <AlertTriangle className="w-14 h-14 text-red-400" />
+              </div>
+            </div>
+            
+            <h2 className="text-2xl font-bold text-white mb-3">Something Went Wrong</h2>
+            <p className="text-slate-400 mb-6">{error}</p>
+            
+            <button
+              onClick={() => window.location.reload()}
+              className="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/20 text-white font-medium rounded-xl transition-all duration-200"
+            >
+              Try Again
+            </button>
           </div>
         </div>
       </div>
@@ -436,243 +536,374 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-gray-100 p-4">
+    <div className="min-h-screen bg-slate-950 relative overflow-hidden">
+      {/* Animated Background */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[100px] animate-blob" />
+        <div className="absolute top-[20%] right-[-10%] w-[500px] h-[500px] bg-purple-500/5 rounded-full blur-[100px] animate-blob animation-delay-2000" />
+        <div className="absolute bottom-[-10%] left-[20%] w-[500px] h-[500px] bg-indigo-500/5 rounded-full blur-[100px] animate-blob animation-delay-4000" />
+        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10" />
+      </div>
+
+      {/* Warning Toast */}
       {showWarning && (
-        <div className="fixed top-4 right-4 bg-red-500 text-white px-6 py-4 rounded-lg shadow-lg flex items-center gap-3 animate-bounce z-50">
-          <AlertTriangle className="w-6 h-6" />
-          <span className="font-semibold">Focus on the screen!</span>
+        <div className="fixed top-6 right-6 z-50 animate-fade-in-up">
+          <div className="flex items-center gap-4 bg-red-500/10 backdrop-blur-xl border border-red-500/30 px-6 py-4 rounded-2xl shadow-2xl shadow-red-500/20">
+            <div className="relative">
+              <span className="absolute inset-0 bg-red-500 blur-lg rounded-full opacity-50 animate-pulse" />
+              <AlertTriangle className="relative w-6 h-6 text-red-400" />
+            </div>
+            <div>
+              <h3 className="text-white font-semibold">Focus Alert</h3>
+              <p className="text-red-200 text-sm">
+                {tabSwitchCount >= MAX_TAB_SWITCHES 
+                  ? 'Maximum warnings reached!' 
+                  : `You switched tabs ${tabSwitchCount} time${tabSwitchCount > 1 ? 's' : ''}`}
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
-      <div className="max-w-6xl mx-auto py-8">
-        <div className="bg-white rounded-2xl shadow-xl overflow-hidden mb-6">
-          <div className="bg-blue-600 text-white px-8 py-4">
-            <div className="flex justify-between items-center">
-              <h1 className="text-xl font-semibold">Interview Session</h1>
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center text-sm text-white">
-                  <span className="w-2.5 h-2.5 rounded-full mr-2 bg-red-500 animate-pulse"></span>
-                  <span>{isRecording ? 'Recording' : 'Paused'}</span>
+      {/* Main Content */}
+      <div className="relative z-10 p-6">
+        <div className="max-w-7xl mx-auto">
+          {/* Header Card */}
+          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mb-6 shadow-xl ring-1 ring-white/10">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  <div className={`absolute inset-0 rounded-xl ${isRecording ? 'bg-red-500/30 blur-lg animate-pulse' : 'bg-slate-500/30 blur-lg'} transition-all duration-300`} />
+                  <div className="relative bg-white/10 p-3 rounded-xl border border-white/20">
+                    <MonitorPlay className="w-6 h-6 text-white" />
+                  </div>
                 </div>
+                <div>
+                  <h1 className="text-xl font-bold text-white tracking-tight">AI Interview Session</h1>
+                  <p className="text-slate-400 text-sm">{interviewData.jobRole} Position</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-6">
+                {/* Timer */}
+                <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-xl border border-white/10">
+                  <Clock className="w-5 h-5 text-blue-400" />
+                  <span className="text-white font-mono font-medium">{formatTime(elapsedTime)}</span>
+                </div>
+                
+                {/* Recording Status */}
+                <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-xl border border-white/10">
+                  <span className={`relative flex h-3 w-3`}>
+                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isRecording ? 'bg-red-500' : 'bg-slate-500'} opacity-75`}></span>
+                    <span className={`relative inline-flex rounded-full h-3 w-3 ${isRecording ? 'bg-red-500' : 'bg-slate-500'}`}></span>
+                  </span>
+                  <span className="text-white text-sm font-medium">{isRecording ? 'Recording' : 'Paused'}</span>
+                </div>
+                
+                {/* Tab Switch Warning */}
                 {tabSwitchCount > 0 && (
-                  <div className="flex items-center text-sm px-3 py-1 bg-red-100 text-red-800 rounded-full">
-                    <AlertTriangle className="w-4 h-4 mr-1" />
-                    Tab Switches: {tabSwitchCount}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Questions Section */}
-          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
-              <div className="p-6">
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-xl font-bold text-gray-800">
-                    Question {currentQuestion + 1} of {questions.length}
-                  </h2>
-                  <span className="text-sm font-medium text-blue-600">
-                    {Math.round(((currentQuestion + 1) / questions.length) * 100)}% Complete
-                  </span>
-                </div>
-
-                <div className="h-2 bg-gray-200 rounded-full mb-6">
-                  <div
-                    className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-500"
-                    style={{ width: `${((currentQuestion + 1) / questions.length) * 100}%` }}
-                  />
-                </div>
-
-                <div className="bg-blue-50 p-4 rounded-lg mb-6">
-                  <p className="text-lg text-gray-800 leading-relaxed">
-                    {questions[currentQuestion]}
-                  </p>
-                </div>
-
-                <div className="space-y-4">
-                  <label htmlFor="answer" className="block text-sm font-medium text-gray-700">
-                    Your Answer
-                  </label>
-                  <div className="relative">
-                    <textarea
-                      id="answer"
-                      rows="6"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-800 placeholder-gray-400"
-                      placeholder="Type your answer here..."
-                      value={currentAnswer}
-                      onChange={(e) => setCurrentAnswer(e.target.value)}
-                    />
-                    <div className="absolute bottom-2 right-2 text-xs text-gray-500">
-                      {currentAnswer.length} characters
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-6 flex justify-end space-x-3">
-                  <button
-                    onClick={handleNext}
-                    disabled={!currentAnswer.trim()}
-                    className={`px-6 py-2.5 font-medium text-sm leading-tight rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 ease-in-out ${
-                      currentAnswer.trim()
-                        ? 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg active:bg-blue-800'
-                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    }`}
-                  >
-                    {currentQuestion === questions.length - 1 ? 'Submit Interview' : 'Next Question'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Webcam Section */}
-          <div className="lg:col-span-1 space-y-4">
-            <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
-              <div className="p-4 bg-gray-800 text-white flex justify-between items-center">
-                <h3 className="font-medium flex items-center">
-                  <Camera className="w-5 h-5 mr-2" />
-                  Webcam
-                </h3>
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={toggleMute}
-                    className="p-1.5 rounded-full hover:bg-gray-700 transition-colors"
-                    title={isMuted ? 'Unmute' : 'Mute'}
-                  >
-                    {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                  </button>
-                  <button
-                    onClick={toggleVideo}
-                    className="p-1.5 rounded-full hover:bg-gray-700 transition-colors"
-                    title={isVideoOn ? 'Turn off camera' : 'Turn on camera'}
-                  >
-                    {isVideoOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-                  </button>
-                  <button
-                    onClick={toggleFullscreen}
-                    className="p-1.5 rounded-full hover:bg-gray-700 transition-colors"
-                    title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-                  >
-                    {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="relative pt-[56.25%] bg-black rounded-lg overflow-hidden">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="absolute inset-0 w-full h-full object-cover"
-                  style={{
-                    transform: 'scaleX(-1)',
-                    backgroundColor: 'black',
-                    display: isVideoOn ? 'block' : 'none'
-                  }}
-                  onError={(e) => {
-                    console.error('Video error:', e);
-                    console.error('Video error details:', e.target.error);
-                    setError('Failed to load video stream. Please check camera permissions.');
-                    setShowStartButton(true);
-                  }}
-                  onCanPlay={() => {
-                    console.log('Video can play');
-                    videoRef.current?.play().catch(err => {
-                      console.error('Play error:', err);
-                      setError('Failed to play video. Please try starting the camera manually.');
-                      setShowStartButton(true);
-                    });
-                  }}
-                />
-                {!isVideoOn && showStartButton && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gray-900/90 text-white">
-                    <div className="text-center p-6 bg-gray-800 rounded-xl">
-                      <VideoOff className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-                      <p className="mb-4 text-lg">Camera is turned off</p>
-                      <button
-                        onClick={async () => {
-                          setShowStartButton(false);
-                          setError('');
-                          try {
-                            await startWebcam();
-                            setIsVideoOn(true);
-                          } catch (err) {
-                            console.error('Failed to start webcam:', err);
-                            setError('Failed to start camera. Please try again.');
-                            setShowStartButton(true);
-                          }
-                        }}
-                        className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition-colors"
-                      >
-                        Start Camera
-                      </button>
-                      {error && (
-                        <p className="mt-3 text-sm text-red-400">{error}</p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Recording Indicator */}
-                <div className="absolute bottom-4 left-4 flex items-center">
-                  <span className="flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-red-500 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600"></span>
-                  </span>
-                  <span className="ml-2 text-sm font-medium text-white bg-black/50 px-2 py-0.5 rounded-full">
-                    {isRecording ? 'Recording' : 'Paused'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Tab Switch Warning */}
-              {tabSwitchCount > 0 && (
-                <div className="p-3 bg-yellow-50 border-t border-yellow-200">
-                  <div className="flex items-start">
-                    <AlertTriangle className="flex-shrink-0 h-5 w-5 text-yellow-500 mt-0.5" />
-                    <div className="ml-3">
-                      <h3 className="text-sm font-medium text-yellow-800">
-                        {tabSwitchCount >= MAX_TAB_SWITCHES
-                          ? 'Warning: Maximum tab switches reached!'
-                          : `Tab switched ${tabSwitchCount} time${tabSwitchCount > 1 ? 's' : ''}`}
-                      </h3>
-                      <p className="text-sm text-yellow-700 mt-1">
-                        {tabSwitchCount >= MAX_TAB_SWITCHES
-                          ? 'Further tab switches may result in interview termination.'
-                          : `Please stay on this tab. (Max ${MAX_TAB_SWITCHES} allowed)`}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-            
-            {/* Progress Summary */}
-            <div className="bg-white rounded-2xl shadow-lg p-4">
-              <h3 className="font-medium text-gray-800 mb-3">Interview Progress</h3>
-              <div className="space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Questions Completed</span>
-                  <span className="font-medium">{currentQuestion} of {questions.length}</span>
-                </div>
-                <div className="h-2 bg-gray-200 rounded-full">
-                  <div 
-                    className="h-full bg-green-500 rounded-full transition-all duration-500" 
-                    style={{ width: `${(currentQuestion / questions.length) * 100}%` }}
-                  />
-                </div>
-                <div className="pt-2 border-t border-gray-100">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Tab Switches</span>
+                  <div className={`flex items-center gap-2 px-4 py-2 rounded-xl border ${
+                    tabSwitchCount >= MAX_TAB_SWITCHES 
+                      ? 'bg-red-500/10 border-red-500/30' 
+                      : 'bg-yellow-500/10 border-yellow-500/30'
+                  }`}>
+                    <AlertTriangle className={`w-5 h-5 ${
+                      tabSwitchCount >= MAX_TAB_SWITCHES ? 'text-red-400' : 'text-yellow-400'
+                    }`} />
                     <span className={`text-sm font-medium ${
-                      tabSwitchCount >= MAX_TAB_SWITCHES ? 'text-red-600' : 'text-gray-800'
+                      tabSwitchCount >= MAX_TAB_SWITCHES ? 'text-red-400' : 'text-yellow-400'
                     }`}>
                       {tabSwitchCount} / {MAX_TAB_SWITCHES}
                     </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Questions Section */}
+            <div className="lg:col-span-2 space-y-6">
+              <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl ring-1 ring-white/10 overflow-hidden">
+                <div className="p-8">
+                  {/* Question Header */}
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-gradient-to-br from-blue-500/20 to-blue-600/20 p-2 rounded-xl border border-blue-500/30">
+                        <span className="text-blue-400 font-bold text-lg">{currentQuestion + 1}</span>
+                      </div>
+                      <span className="text-slate-400">of</span>
+                      <span className="text-white font-semibold text-lg">{questions.length}</span>
+                    </div>
+                    <div className="text-sm text-slate-400">
+                      {Math.round(((currentQuestion + 1) / questions.length) * 100)}% Complete
+                    </div>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="h-2 bg-white/10 rounded-full mb-8 overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-700 ease-out relative"
+                      style={{ width: `${((currentQuestion + 1) / questions.length) * 100}%` }}
+                    >
+                      <div className="absolute inset-0 bg-white/30 animate-shimmer" />
+                    </div>
+                  </div>
+
+                  {/* Question Card */}
+                  <div className="bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-xl p-6 mb-8 border border-white/10">
+                    <div className="flex items-start gap-4">
+                      <div className="bg-blue-500/20 p-2 rounded-lg">
+                        <Sparkles className="w-5 h-5 text-blue-400" />
+                      </div>
+                      <p className="text-white text-lg leading-relaxed">
+                        {questions[currentQuestion]}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Answer Input */}
+                  <div className="space-y-4">
+                    <label htmlFor="answer" className="block text-sm font-medium text-slate-300">
+                      Your Response
+                    </label>
+                    <div className="relative group">
+                      <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-purple-500 rounded-xl opacity-0 group-focus-within:opacity-30 transition duration-300 blur" />
+                      <textarea
+                        id="answer"
+                        rows="6"
+                        className="relative w-full px-5 py-4 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all duration-200 resize-none"
+                        placeholder="Type your answer here..."
+                        value={currentAnswer}
+                        onChange={(e) => setCurrentAnswer(e.target.value)}
+                      />
+                      <div className="absolute bottom-4 right-4 text-xs text-slate-500 bg-white/10 px-2 py-1 rounded-lg">
+                        {currentAnswer.length} chars
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Action Button */}
+                  <div className="mt-8 flex justify-end">
+                    <button
+                      onClick={handleNext}
+                      disabled={!currentAnswer.trim()}
+                      className={`relative group px-8 py-4 rounded-xl font-semibold transition-all duration-300 ${
+                        currentAnswer.trim()
+                          ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white hover:from-blue-500 hover:to-blue-400 shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 hover:-translate-y-0.5'
+                          : 'bg-white/10 text-slate-500 cursor-not-allowed'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        {currentQuestion === questions.length - 1 ? 'Submit Interview' : 'Next Question'}
+                        <svg className={`w-5 h-5 transition-transform duration-300 ${currentAnswer.trim() ? 'group-hover:translate-x-1' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                        </svg>
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Webcam Section */}
+            <div className="lg:col-span-1 space-y-6">
+              {/* Webcam Card */}
+              <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl ring-1 ring-white/10 overflow-hidden">
+                <div className="p-4 bg-gradient-to-r from-slate-800/50 to-slate-900/50 flex items-center justify-between border-b border-white/10">
+                  <div className="flex items-center gap-2">
+                    <Camera className="w-5 h-5 text-blue-400" />
+                    <span className="text-white font-medium">Camera Feed</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={toggleMute}
+                      className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all duration-200 border border-white/10 hover:border-white/20"
+                      title={isMuted ? 'Unmute' : 'Mute'}
+                    >
+                      {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                    </button>
+                    <button
+                      onClick={toggleVideo}
+                      className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all duration-200 border border-white/10 hover:border-white/20"
+                      title={isVideoOn ? 'Turn off camera' : 'Turn on camera'}
+                    >
+                      {isVideoOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+                    </button>
+                    <button
+                      onClick={toggleFullscreen}
+                      className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all duration-200 border border-white/10 hover:border-white/20"
+                      title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                    >
+                      {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="relative pt-[56.25%] bg-slate-900 rounded-b-2xl overflow-hidden">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="absolute inset-0 w-full h-full object-cover"
+                    style={{
+                      transform: 'scaleX(-1)',
+                      display: isVideoOn ? 'block' : 'none'
+                    }}
+                    onError={(e) => {
+                      console.error('Video error:', e);
+                      console.error('Video error details:', e.target.error);
+                      setError('Failed to load video stream. Please check camera permissions.');
+                      setShowStartButton(true);
+                    }}
+                    onCanPlay={() => {
+                      console.log('Video can play');
+                      videoRef.current?.play().catch(err => {
+                        console.error('Play error:', err);
+                        setError('Failed to play video. Please try starting the camera manually.');
+                        setShowStartButton(true);
+                      });
+                    }}
+                  />
+                  
+                  {/* Camera Off Overlay */}
+                  {!isVideoOn && showStartButton && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800">
+                      <div className="text-center p-8">
+                        <div className="relative inline-block mb-6">
+                          <div className="absolute inset-0 bg-slate-500/30 blur-2xl rounded-full" />
+                          <div className="relative bg-slate-800/80 p-5 rounded-2xl border border-slate-700">
+                            <VideoOff className="w-16 h-16 text-slate-500" />
+                          </div>
+                        </div>
+                        <p className="text-slate-400 mb-6 text-lg">Camera is turned off</p>
+                        <button
+                          onClick={async () => {
+                            setShowStartButton(false);
+                            setError('');
+                            try {
+                              await startWebcam();
+                              setIsVideoOn(true);
+                            } catch (err) {
+                              console.error('Failed to start webcam:', err);
+                              setError('Failed to start camera. Please try again.');
+                              setShowStartButton(true);
+                            }
+                          }}
+                          className="px-8 py-3 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-medium rounded-xl transition-all duration-300 shadow-lg shadow-blue-500/25"
+                        >
+                          Enable Camera
+                        </button>
+                        {error && (
+                          <p className="mt-4 text-sm text-red-400 bg-red-500/10 px-4 py-2 rounded-lg border border-red-500/20">{error}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recording Indicator */}
+                  <div className="absolute bottom-4 left-4 flex items-center gap-3 bg-black/50 backdrop-blur-xl px-4 py-2 rounded-full border border-white/10">
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isRecording ? 'bg-red-500' : 'bg-slate-500'} opacity-75`}></span>
+                      <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isRecording ? 'bg-red-500' : 'bg-slate-500'}`}></span>
+                    </span>
+                    <span className="text-white text-sm font-medium">{isRecording ? 'Recording' : 'Paused'}</span>
+                  </div>
+                </div>
+
+                {/* Tab Switch Warning */}
+                {tabSwitchCount > 0 && (
+                  <div className={`p-4 border-t ${
+                    tabSwitchCount >= MAX_TAB_SWITCHES 
+                      ? 'bg-red-500/10 border-red-500/20' 
+                      : 'bg-yellow-500/10 border-yellow-500/20'
+                  }`}>
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className={`w-5 h-5 shrink-0 mt-0.5 ${
+                        tabSwitchCount >= MAX_TAB_SWITCHES ? 'text-red-400' : 'text-yellow-400'
+                      }`} />
+                      <div>
+                        <h3 className={`text-sm font-medium ${
+                          tabSwitchCount >= MAX_TAB_SWITCHES ? 'text-red-400' : 'text-yellow-400'
+                        }`}>
+                          {tabSwitchCount >= MAX_TAB_SWITCHES
+                            ? 'Maximum warnings reached!'
+                            : `Tab switched ${tabSwitchCount} time${tabSwitchCount > 1 ? 's' : ''}`}
+                        </h3>
+                        <p className={`text-xs mt-1 ${
+                          tabSwitchCount >= MAX_TAB_SWITCHES ? 'text-red-300/80' : 'text-yellow-300/80'
+                        }`}>
+                          {tabSwitchCount >= MAX_TAB_SWITCHES
+                            ? 'Interview may be flagged for review.'
+                            : `Stay focused. (Max ${MAX_TAB_SWITCHES} allowed)`}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Progress Summary Card */}
+              <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-xl ring-1 ring-white/10">
+                <h3 className="text-white font-semibold mb-6 flex items-center gap-2">
+                  <div className="w-1 h-5 bg-gradient-to-b from-blue-500 to-purple-500 rounded-full" />
+                  Progress Summary
+                </h3>
+                
+                <div className="space-y-6">
+                  {/* Questions Progress */}
+                  <div>
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-slate-400 text-sm">Questions Answered</span>
+                      <span className="text-white font-semibold">{currentQuestion} / {questions.length}</span>
+                    </div>
+                    <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-green-500 to-emerald-500 rounded-full transition-all duration-700 ease-out"
+                        style={{ width: `${(currentQuestion / questions.length) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Tab Switches */}
+                  <div>
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-slate-400 text-sm">Tab Switches</span>
+                      <span className={`font-semibold ${
+                        tabSwitchCount >= MAX_TAB_SWITCHES ? 'text-red-400' : 'text-white'
+                      }`}>
+                        {tabSwitchCount} / {MAX_TAB_SWITCHES}
+                      </span>
+                    </div>
+                    <div className="flex gap-1">
+                      {[...Array(MAX_TAB_SWITCHES)].map((_, i) => (
+                        <div
+                          key={i}
+                          className={`flex-1 h-2 rounded-full transition-all duration-300 ${
+                            i < tabSwitchCount 
+                              ? (i >= MAX_TAB_SWITCHES - 1 
+                                  ? 'bg-red-500 shadow-lg shadow-red-500/30' 
+                                  : 'bg-yellow-500 shadow-lg shadow-yellow-500/30')
+                              : 'bg-white/10'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Answer Length */}
+                  <div>
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-slate-400 text-sm">Current Answer</span>
+                      <span className="text-white font-semibold">{currentAnswer.length} chars</span>
+                    </div>
+                    <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.min((currentAnswer.length / 2000) * 100, 100)}%` }}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -680,6 +911,47 @@ export default function Interview({ interviewId, interviewData, onComplete }) {
           </div>
         </div>
       </div>
+
+      {/* Custom CSS Animations */}
+      <style>{`
+        @keyframes blob {
+          0% { transform: translate(0px, 0px) scale(1); }
+          33% { transform: translate(30px, -50px) scale(1.1); }
+          66% { transform: translate(-20px, 20px) scale(0.9); }
+          100% { transform: translate(0px, 0px) scale(1); }
+        }
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes shimmer {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          25% { transform: translateX(-5px); }
+          75% { transform: translateX(5px); }
+        }
+        .animate-blob {
+          animation: blob 15s infinite;
+        }
+        .animate-fade-in-up {
+          animation: fadeInUp 0.5s ease-out forwards;
+        }
+        .animate-shimmer {
+          animation: shimmer 2s infinite;
+        }
+        .animate-shake {
+          animation: shake 0.4s ease-in-out;
+        }
+        .animation-delay-2000 {
+          animation-delay: 2s;
+        }
+        .animation-delay-4000 {
+          animation-delay: 4s;
+        }
+      `}</style>
     </div>
   );
 }
